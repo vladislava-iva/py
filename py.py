@@ -1,15 +1,16 @@
-import requests
 import time
 import logging
-from bs4 import BeautifulSoup
 from datetime import datetime
+from playwright.sync_api import sync_playwright
+import requests
 
 # ─── НАСТРОЙКИ ──────────────────────────────────────────────────────────────
-TELEGRAM_TOKEN = "8840732677:AAEkRf8CRJAszdDmm1vTtfVQVZ9fKMlkehc"       # от @BotFather
-TELEGRAM_CHAT_ID = "5784107676"        # твой числовой ID
+TELEGRAM_TOKEN = "8840732677:AAEkRf8CRJAszdDmm1vTtfVQVZ9fKMlkehc"
+TELEGRAM_CHAT_ID = "5784107676"
 
 URL = "https://iframeab-pre5088.intickets.ru/seance/72830766/"
-CHECK_INTERVAL = 60   # проверять каждые N секунд (60 = раз в минуту)
+CHECK_INTERVAL = 60   # проверять каждые N секунд
+NO_TICKETS_PHRASE = "ВСЕ БИЛЕТЫ В БРОНИ ИЛИ РАСПРОДАНЫ"
 # ────────────────────────────────────────────────────────────────────────────
 
 logging.basicConfig(
@@ -18,63 +19,44 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "ru-RU,ru;q=0.9",
-    "Referer": "https://google.com",
-}
-
-# Фраза, которая означает «билетов нет»
-NO_TICKETS_PHRASES = [
-    "ВСЕ БИЛЕТЫ В БРОНИ ИЛИ РАСПРОДАНЫ",
-]
-
 
 def send_telegram(message: str) -> None:
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML",
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
     try:
         resp = requests.post(url, json=payload, timeout=10)
-        if not resp.ok:
+        if resp.ok:
+            logging.info("Telegram: сообщение отправлено")
+        else:
             logging.error("Telegram error: %s", resp.text)
     except Exception as e:
         logging.error("Telegram send failed: %s", e)
 
 
-def check_tickets() -> bool:
-    """Возвращает True, если билеты ПОЯВИЛИСЬ (недоступность НЕ обнаружена)."""
+def check_tickets(page) -> str:
     try:
-        resp = requests.get(URL, headers=HEADERS, timeout=15)
-        resp.raise_for_status()
+        page.goto(URL, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(3000)
+        content = page.inner_text("body")
     except Exception as e:
-        logging.warning("Ошибка запроса: %s", e)
-        return False
+        logging.warning("Ошибка загрузки страницы: %s", e)
+        return "error"
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    page_text = soup.get_text(separator=" ").lower()
+    logging.info("Длина страницы: %d символов", len(content.strip()))
+    logging.info("Содержимое: %s", content[:300])  # покажет первые 300 символов
 
-    # Если на странице есть хоть одна фраза «нет билетов» — всё ещё пусто
-    for phrase in NO_TICKETS_PHRASES:
-        if phrase in page_text:
-            return False
+    if len(content.strip()) < 500:
+        logging.warning("Страница слишком короткая — пропускаем")
+        return "error"
 
-    # Дополнительно ищем кнопку/ссылку покупки
-    buy_keywords = ["купить", "buy", "добавить в корзину", "order", "заказать"]
-    for kw in buy_keywords:
-        if kw in page_text:
-            return True
+    if NO_TICKETS_PHRASE.lower() in content.lower():
+        return "no_tickets"
 
-    # Если фраз «нет билетов» нет и страница загрузилась — считаем, что появились
-    return True
+    if "₽" in content:
+        return "available"
 
+    logging.warning("Статус непонятен")
+    return "error"
 
 def main():
     logging.info("Мониторинг запущен: %s", URL)
@@ -86,25 +68,45 @@ def main():
 
     notified = False
 
-    while True:
-        available = check_tickets()
-        now = datetime.now().strftime("%H:%M:%S")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            locale="ru-RU",
+        )
+        page = context.new_page()
 
-        if available and not notified:
-            msg = (
-                f"🎟 <b>БИЛЕТЫ ПОЯВИЛИСЬ!</b>\n"
-                f"⏰ {now}\n"
-                f"👉 <a href='{URL}'>Купить сейчас</a>"
-            )
-            send_telegram(msg)
-            logging.info("✅ Билеты появились! Уведомление отправлено.")
-            notified = True  # не спамим повторно
+        try:
+            while True:
+                status = check_tickets(page)
 
-        elif not available:
-            logging.info("⏳ Билетов пока нет...")
-            notified = False  # сбрасываем флаг, если снова пропали
+                if status == "available" and not notified:
+                    msg = (
+                        f"🎟 <b>БИЛЕТЫ ПОЯВИЛИСЬ!</b>\n"
+                        f"⏰ {datetime.now().strftime('%H:%M:%S')}\n"
+                        f"👉 <a href='{URL}'>Купить сейчас</a>"
+                    )
+                    send_telegram(msg)
+                    logging.info("✅ Билеты появились!")
+                    notified = True
 
-        time.sleep(CHECK_INTERVAL)
+                elif status == "no_tickets":
+                    logging.info("⏳ Билетов пока нет...")
+                    notified = False
+
+                elif status == "error":
+                    logging.info("⚠️ Не удалось проверить, пропускаем...")
+
+                time.sleep(CHECK_INTERVAL)
+
+        except KeyboardInterrupt:
+            logging.info("Остановлено пользователем")
+        finally:
+            browser.close()
 
 
 if __name__ == "__main__":
