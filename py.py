@@ -8,7 +8,7 @@ import requests
 TELEGRAM_TOKEN = "8840732677:AAEkRf8CRJAszdDmm1vTtfVQVZ9fKMlkehc"
 TELEGRAM_CHAT_ID = "5784107676"
 
-URL = "https://iframeab-pre5088.intickets.ru/seance/72830766/"
+URL = "https://iframeab-pre5087.intickets.ru/seance/72558778/"
 CHECK_INTERVAL = 60   # проверять каждые N секунд
 NO_TICKETS_PHRASE = "ВСЕ БИЛЕТЫ В БРОНИ ИЛИ РАСПРОДАНЫ"
 # ────────────────────────────────────────────────────────────────────────────
