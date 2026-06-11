@@ -12,7 +12,7 @@ TELEGRAM_CHAT_ID = "5784107676"
 
 # Gmail настройки
 GMAIL_FROM = "miako.miko.kom@gmail.com"       # с какого адреса отправлять
-GMAIL_PASSWORD = "iwzx gcsb cnpp ptgh"  # пароль приложения (не обычный пароль!)
+GMAIL_PASSWORD = "iwzxgcsbcnppptgh"  # пароль приложения (не обычный пароль!)
 GMAIL_TO = "miako.miko.kom@gmail.com"         # на какой адрес получать
  
 URL = "https://iframeab-pre5088.intickets.ru/seance/72830766/"
