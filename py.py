@@ -43,7 +43,6 @@ def check_tickets(page) -> str:
         return "error"
 
     logging.info("Длина страницы: %d символов", len(content.strip()))
-    logging.info("Содержимое: %s", content[:300])  # покажет первые 300 символов
 
     if len(content.strip()) < 500:
         logging.warning("Страница слишком короткая — пропускаем")
